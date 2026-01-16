@@ -49,3 +49,4 @@ D:\workSpace\vscode\DragonVeinProject\Server\DragonVein.API\obj\Debug\netcoreapp
 D:\workSpace\vscode\DragonVeinProject\Server\DragonVein.API\obj\Debug\netcoreapp3.1\DragonVein.API.dll
 D:\workSpace\vscode\DragonVeinProject\Server\DragonVein.API\obj\Debug\netcoreapp3.1\DragonVein.API.pdb
 D:\workSpace\vscode\DragonVeinProject\Server\DragonVein.API\obj\Debug\netcoreapp3.1\DragonVein.API.genruntimeconfig.cache
+D:\workSpace\vscode\DragonVeinProject\Server\DragonVein.API\bin\Debug\netcoreapp3.1\EFCore.NamingConventions.dll

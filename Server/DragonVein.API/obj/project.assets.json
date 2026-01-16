@@ -2,6 +2,20 @@
   "version": 3,
   "targets": {
     ".NETCoreApp,Version=v3.1": {
+      "EFCore.NamingConventions/1.1.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore": "3.1.1",
+          "Microsoft.EntityFrameworkCore.Relational": "3.1.1",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "3.1.1"
+        },
+        "compile": {
+          "lib/netstandard2.0/EFCore.NamingConventions.dll": {}
+        },
+        "runtime": {
+          "lib/netstandard2.0/EFCore.NamingConventions.dll": {}
+        }
+      },
       "Microsoft.AspNetCore.Authentication.JwtBearer/3.1.32": {
         "type": "package",
         "dependencies": {
@@ -1075,6 +1089,18 @@
     }
   },
   "libraries": {
+    "EFCore.NamingConventions/1.1.0": {
+      "sha512": "M0dhAlEv46iwx2/oz3i6TwnWCPz7kgvOnw5+GFrWELxuqgr6dk9Nxoo3EsGOBrKiAoporg187gx7+2MEFDVjdA==",
+      "type": "package",
+      "path": "efcore.namingconventions/1.1.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "efcore.namingconventions.1.1.0.nupkg.sha512",
+        "efcore.namingconventions.nuspec",
+        "lib/netstandard2.0/EFCore.NamingConventions.dll"
+      ]
+    },
     "Microsoft.AspNetCore.Authentication.JwtBearer/3.1.32": {
       "sha512": "tBnXyLLOm6VxJ51qXU2D7yzmcbXlLUh2YtTYFfNmGiznATcvO3d+e6Q0rRPFAKk92R6gP2JAu3FApM+6sfHjCQ==",
       "type": "package",
@@ -4346,6 +4372,7 @@
   },
   "projectFileDependencyGroups": {
     ".NETCoreApp,Version=v3.1": [
+      "EFCore.NamingConventions >= 1.1.0",
       "Microsoft.AspNetCore.Authentication.JwtBearer >= 3.1.32",
       "Microsoft.EntityFrameworkCore.Design >= 3.1.32",
       "Npgsql.EntityFrameworkCore.PostgreSQL >= 3.1.18"
@@ -4395,6 +4422,10 @@
       "netcoreapp3.1": {
         "targetAlias": "netcoreapp3.1",
         "dependencies": {
+          "EFCore.NamingConventions": {
+            "target": "Package",
+            "version": "[1.1.0, )"
+          },
           "Microsoft.AspNetCore.Authentication.JwtBearer": {
             "target": "Package",
             "version": "[3.1.32, )"
