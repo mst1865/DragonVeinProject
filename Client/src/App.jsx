@@ -28,7 +28,7 @@ const App = () => {
 
   wx.ready(() => {
     wx.getLocation({
-      type: 'wgs84', // 或者 'gcj02'。如果你的 TARGET_LOCATIONS 是高德/腾讯坐标，这里一定要填 'gcj02'
+      type: 'gcj02', // 或者 'gcj02'。如果你的 TARGET_LOCATIONS 是高德/腾讯坐标，这里一定要填 'gcj02'
       success: function (res) {
         const lat = res.latitude;
         const lng = res.longitude;
