@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  # 后端服务 (.NET Core 3.1)
+  backend:
+    build:
+      context: ./Server
+      dockerfile: Dockerfile
+    container_name: dragon-vein-backend
+    restart: always
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      # 关键：数据库连接字符串
+      # 如果现有的 PGSQL 也在 Docker 容器里，且在同一个 network，可以使用容器名。
+      # 如果 PGSQL 直接跑在宿主机上，请使用 host.docker.internal (Win/Mac) 或 172.17.0.1 (Linux)。
+      # 这里的 server=host.docker.internal 假设 PGSQL 在宿主机监听 5432
+      - ConnectionStrings__DefaultConnection=Server=host.docker.internal;Port=5432;Database=dragon_vein_db;User Id=postgres;Password=your_password;
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # 允许 Linux 容器访问宿主机 IP
+
+  # 前端服务 (React + Nginx)
+  frontend:
+    build:
+      context: ./Client
+      dockerfile: Dockerfile
+    container_name: dragon-vein-frontend
+    restart: always
+    ports:
+      - "8080:80"  # 浏览器访问宿主机的 8080 端口
+    depends_on:
+      - backend
+
