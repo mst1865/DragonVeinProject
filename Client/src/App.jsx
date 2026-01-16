@@ -11,16 +11,23 @@ const App = () => {
   const { coords, error } = useGeoLocation(); // 实时防抖坐标
   
   // 模拟登录API调用
-  const handleLogin = async (username) => {
-    // 真实场景：调用 POST /api/game/login
-    // 这里模拟返回数据
+  const handleLogin = async (loginData) => {
+    // loginData 是 { id, name, teamId, isCaptain, token }
+    
     const mockResponse = {
-        user: { id: 1, name: username, teamId: 1, teamName: "神机营", teamDesc: "前端/移动端组 (火力输出)", isFirst: true },
-        // isFirst: Math.random() > 0.5 // 模拟是否第一次
+        user: { 
+            id: loginData.id,       // 使用传入的 ID
+            name: loginData.name,   // 使用传入的 name 字符串
+            teamId: loginData.teamId, // 使用传入的 teamId
+            teamName: "神机营", 
+            teamDesc: "前端/移动端组 (火力输出)", 
+            isFirst: true 
+        },
     };
     
     setUser(mockResponse.user);
-    console.log("Current User State:", user);
+    console.log("Current User State:", mockResponse.user);
+    
     if (mockResponse.user.isFirst) {
       setStage('intro');
     } else {
