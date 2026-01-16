@@ -1,9 +1,9 @@
 export const TARGET_LOCATIONS = [
   { id: 1, name: "白马公园（常遇春墓）", lat: 32.0722, lng: 118.7909, totalCards: 21, desc: "寻找古城墙的入口" },
-  { id: 2, name: "第二站：白马公园", lat: 31.2977, lng: 121.4538, totalCards: 21, desc: "石马面前合影" },
-  { id: 3, name: "第三站：中山陵", lat: 32.0617, lng: 118.8496, totalCards: 21, desc: "博爱坊打卡" },
-  { id: 4, name: "第四站：明孝陵", lat: 32.0565, lng: 118.8471, totalCards: 21, desc: "神道石像路" },
-  { id: 5, name: "终点站：阅江楼", lat: 32.0934, lng: 118.7397, totalCards: 20, desc: "登楼望江，决战时刻" },
+  { id: 2, name: "琵琶湖（明城墙段）", lat: 31.2977, lng: 121.4538, totalCards: 21, desc: "明城墙·防御界" },
+  { id: 3, name: "前湖路/植物园外围", lat: 32.0617, lng: 118.8496, totalCards: 21, desc: "迷雾森林·缓冲区" },
+  { id: 4, name: "美龄宫（门口/陵园路）", lat: 32.0565, lng: 118.8471, totalCards: 21, desc: "民国·项链核心" },
+  { id: 5, name: "流徽榭（水榭大草坪）", lat: 32.0934, lng: 118.7397, totalCards: 20, desc: "奇点·龙穴重组" },
 ];
 
 const generateDeck = () => {
