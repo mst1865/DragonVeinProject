@@ -26,11 +26,11 @@ namespace DragonVein.API.Data
 
             // 1. 预制战队数据 (根据您的需求文档)
             modelBuilder.Entity<Team>().HasData(
-                new Team { Id = 1, Name = "北镇抚司", EnName = "The North Division", Description = "架构/运维组 (Root权限)" },
-                new Team { Id = 2, Name = "神机营", EnName = "Shenji Battalion", Description = "前端/移动端组 (火力输出)" },
-                new Team { Id = 3, Name = "六扇门", EnName = "The Six Doors", Description = "全栈/测试组 (机动解决Bug)" },
-                new Team { Id = 4, Name = "军统局", EnName = "Juntong Bureau", Description = "后端开发组 (数据逻辑)" },
-                new Team { Id = 5, Name = "中央研究院", EnName = "Academia Sinica", Description = "算法/数据组 (智囊团)" }
+                new Team { Id = 1, Name = "南镇抚司", EnName = "The South Division", Description = "锦衣卫南司 (法纪/军匠)" },
+                new Team { Id = 2, Name = "神机营", EnName = "Shenji Battalion", Description = "明朝三大营 (火器部队)" },
+                new Team { Id = 3, Name = "督察院", EnName = "The Censorate", Description = "明朝最高监察机构" },
+                new Team { Id = 4, Name = "军统局", EnName = "Juntong Bureau", Description = "国民政府军事委员会调查统计局" },
+                new Team { Id = 5, Name = "中华民族复兴社", EnName = "The Revival Society", Description = "蓝衣社 (精英组织)" }
             );
 
             // 2. 预制用户数据 (40人，初始未分配战队)
