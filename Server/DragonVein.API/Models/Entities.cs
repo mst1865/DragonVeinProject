@@ -15,6 +15,7 @@ namespace DragonVein.API.Models
         [JsonIgnore] // 防止循环引用
         public Team Team { get; set; }
         public DateTime? LastCheckInTime { get; set; }
+        public bool IsCaptain { get; set; }
         // 位置信息
         public double? Lat { get; set; }
         public double? Lng { get; set; }

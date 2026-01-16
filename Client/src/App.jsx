@@ -1,13 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getDistance } from './utils/geo';
 import { useGeoLocation } from './utils/useGeoLocation';
 import { INTRO_TEXT } from './data/gameConfig';
 import LoginPage from './components/LoginPage';
 import CaptainView from './components/CaptainView';
 import CardModal from './components/CardModal';
-import { Shield, MapPin, Navigation, User, Trophy, Loader2 } from 'lucide-react';
-import { Map } from 'lucide-react'; // 引入地图图标
-import MapTab from './components/MapTab'; // 引入新组件
+import MapTab from './components/MapTab'; // 引入地图组件
+import { Shield, MapPin, Navigation, User, Trophy, Loader2, Map } from 'lucide-react'; // 确保引入了 Map 图标
 
 // --- 辅助：卡牌排序权重 ---
 const SUIT_ORDER = { '♠': 4, '♥': 3, '♣': 2, '♦': 1 };
@@ -19,12 +18,13 @@ const App = () => {
   const [stage, setStage] = useState('loading');
   const [isAssigning, setIsAssigning] = useState(false);
   const { coords, error } = useGeoLocation();
-  const [allUsers, setAllUsers] = useState([]); // 全员位置数据
+  
   // --- 游戏状态 ---
   const [activeTab, setActiveTab] = useState('checkin');
   const [locations, setLocations] = useState([]);
   const [teamCards, setTeamCards] = useState([]); 
   const [newCard, setNewCard] = useState(null);
+  const [allUsers, setAllUsers] = useState([]); // 全员位置数据
 
   // --- 1. 初始化 ---
   useEffect(() => {
@@ -46,70 +46,48 @@ const App = () => {
     initGame();
   }, []);
 
-  // --- 新增：位置同步心跳 ---
-  useEffect(() => {
-    if (stage !== 'game' || !user || !coords.lat) return;
-
-    const syncLocation = async () => {
-      const token = localStorage.getItem('token');
-      const headers = { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}` 
-      };
-
-      try {
-        // 1. 上传自己位置
-        await fetch('/api/game/location', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ lat: coords.lat, lng: coords.lng })
-        });
-
-        // 2. 拉取全员位置
-        const res = await fetch('/api/game/locations/all', { headers });
-        if (res.ok) {
-          const usersData = await res.json();
-          setAllUsers(usersData);
-        }
-      } catch (err) {
-        console.error("Location sync failed", err);
-      }
-    };
-
-    // 立即执行一次
-    syncLocation();
-    // 每 5 秒同步一次
-    const timer = setInterval(syncLocation, 5000);
-
-    return () => clearInterval(timer);
-  }, [stage, user, coords.lat, coords.lng]); // 当位置变化或用户状态变化时生效
-
-  // --- 2. 加载游戏数据 ---
+  // --- 2. 加载数据 & 位置同步心跳 ---
   useEffect(() => {
     if (stage === 'game') {
       const token = localStorage.getItem('token');
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const fetchLocations = async () => {
+      // 加载基础数据
+      const fetchData = async () => {
         try {
-          const res = await fetch('/api/game/locations');
-          if (res.ok) setLocations(await res.json());
-        } catch (err) { console.error(err); }
+          const [locRes, cardRes] = await Promise.all([
+            fetch('/api/game/locations'),
+            fetch('/api/game/team-cards', { headers })
+          ]);
+          if (locRes.ok) setLocations(await locRes.json());
+          if (cardRes.ok) setTeamCards(await cardRes.json());
+        } catch (e) { console.error(e); }
       };
+      fetchData();
 
-      const fetchTeamCards = async () => {
+      // 位置同步循环 (每5秒)
+      const syncLocation = async () => {
+        if (!coords.lat) return;
         try {
-          const res = await fetch('/api/game/team-cards', { headers });
-          if (res.ok) setTeamCards(await res.json());
-        } catch (err) { console.error(err); }
+          // 上传自己
+          await fetch('/api/game/location', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({ lat: coords.lat, lng: coords.lng })
+          });
+          // 拉取全员
+          const res = await fetch('/api/game/locations/all', { headers });
+          if (res.ok) setAllUsers(await res.json());
+        } catch (e) { console.error("Location sync error", e); }
       };
-
-      fetchLocations();
-      fetchTeamCards();
+      
+      syncLocation(); // 立即执行一次
+      const timer = setInterval(syncLocation, 5000);
+      return () => clearInterval(timer);
     }
-  }, [stage]);
+  }, [stage, coords.lat]); // 依赖 coords.lat 确保获取到位置后才开始上传
 
-  // --- 3. 业务逻辑 ---
+  // --- 3. 业务逻辑 (保持不变) ---
   const handleLogin = async (loginData) => {
     try {
       const res = await fetch('/api/game/login', {
@@ -118,7 +96,6 @@ const App = () => {
         body: JSON.stringify({ username: String(loginData.id), realName: String(loginData.name) })
       });
       if (!res.ok) { alert(await res.text()); return; }
-      
       const data = await res.json();
       localStorage.setItem('token', data.token);
       setUser(data.user);
@@ -172,8 +149,6 @@ const App = () => {
     alert(`队长指令：打出 ${ids.length} 张牌！`);
   };
 
-  // --- 4. 视图辅助 ---
-  // 对手牌进行排序：先按花色，再按点数
   const sortedCards = [...teamCards].sort((a, b) => {
     const suitDiff = SUIT_ORDER[b.suit] - SUIT_ORDER[a.suit];
     if (suitDiff !== 0) return suitDiff;
@@ -184,7 +159,7 @@ const App = () => {
   if (stage === 'loading') return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-yellow-500"><Loader2 className="w-10 h-10 animate-spin"/><span className="ml-3">正在连接矩阵...</span></div>;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans pb-20">
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
       {stage === 'login' && <LoginPage onLogin={handleLogin} />}
       
       {stage === 'intro' && (
@@ -204,7 +179,7 @@ const App = () => {
 
       {stage === 'game' && user && (
         <>
-          <div className="sticky top-0 z-20 bg-slate-800 p-4 border-b border-slate-700 shadow-md flex justify-between items-center">
+          <div className="sticky top-0 z-40 bg-slate-800 p-4 border-b border-slate-700 shadow-md flex justify-between items-center">
             <div>
               <h1 className="font-bold text-yellow-500 flex items-center gap-2"><Shield size={18}/> {user.teamName}</h1>
               <p className="text-xs text-slate-400">特工: {user.name || user.RealName}</p>
@@ -215,8 +190,20 @@ const App = () => {
             </div>
           </div>
 
-          <div className="p-4 h-[calc(100vh-140px)]"> {/* 调整高度以适配地图 */}
-            {/* Tab 1: Map */}
+          {/* ✅ 关键修复：
+            - 如果是 'map'，使用固定高度 calc(100vh-140px)，防止地图无限拉长。
+            - 如果是 'checkin' 或其他，移除固定高度，使用 pb-32 增加底部留白，允许页面自然滚动。
+          */}
+          <div className={`p-4 ${activeTab === 'map' ? 'h-[calc(100vh-140px)] overflow-hidden' : 'pb-32 min-h-screen'}`}>
+            
+            {/* Tab 1: Map (天眼) */}
+            {activeTab === 'map' && (
+               <div className="w-full h-full border-2 border-slate-700 rounded-xl bg-slate-800 relative z-0">
+                 <MapTab locations={locations} users={allUsers} currentUser={user} />
+               </div>
+            )}
+
+            {/* Tab 2: Checkin (列表) */}
             {activeTab === 'checkin' && (
               <div className="space-y-4">
                 {locations.length === 0 ? <p className="text-center text-slate-500 mt-10">正在加载时空坐标...</p> : locations.map(site => {
@@ -237,22 +224,11 @@ const App = () => {
               </div>
             )}
 
-            {/* ✅ Tab 1.5: 地图模式 (新增) */}
-            {activeTab === 'map' && (
-               <div className="w-full h-full border-2 border-slate-700 rounded-xl bg-slate-800">
-                 {/* 传入 locations(任务点), allUsers(全员), user(自己) */}
-                 <MapTab locations={locations} users={allUsers} currentUser={user} />
-               </div>
-            )}
-
-            {/* Tab 2: Team Cards (叠牌效果) */}
+            {/* Tab 3: My Cards */}
             {activeTab === 'mycards' && (
               <div>
                 <h3 className="text-center text-yellow-500 text-sm mb-6">—— 战队资源 ({sortedCards.length}张) ——</h3>
-                
                 {sortedCards.length === 0 && <p className="text-center text-slate-500 mt-10">暂无数据</p>}
-
-                {/* 叠牌容器：pl-10 是为了给第一张牌留出位置，之后每张牌都用 -ml-12 往左盖 */}
                 <div className="flex flex-wrap justify-center pl-10 pt-2">
                   {sortedCards.map((c, idx) => (
                     <div 
@@ -263,36 +239,21 @@ const App = () => {
                         ${(c.suit === '♥' || c.suit === '♦') ? 'bg-slate-100 border-red-200 text-red-600' : 'bg-slate-100 border-slate-300 text-slate-900'}
                         ${user.id === c.userId ? 'ring-2 ring-yellow-500 ring-offset-1 ring-offset-slate-900' : ''}
                       `}
-                      style={{ zIndex: idx }} // 保证后面的压住前面的
+                      style={{ zIndex: idx }}
                     >
-                      {/* 左上角关键信息 */}
                       <div className="absolute top-1 left-1 leading-none text-center min-w-[1rem]">
                         <div className="text-sm font-black font-mono">{c.rank}</div>
                         <div className="text-sm">{c.suit}</div>
                       </div>
-
-                      {/* 中间大花色 (被遮挡也没关系) */}
-                      <div className="flex-1 flex items-center justify-center text-2xl opacity-20">
-                        {c.suit}
-                      </div>
-
-                      {/* 属于我的牌标记 */}
-                      {user.id === c.userId && (
-                        <div className="absolute bottom-0 inset-x-0 bg-yellow-500/90 text-white text-[8px] text-center py-0.5 rounded-b-[4px]">
-                          MY
-                        </div>
-                      )}
+                      <div className="flex-1 flex items-center justify-center text-2xl opacity-20">{c.suit}</div>
+                      {user.id === c.userId && <div className="absolute bottom-0 inset-x-0 bg-yellow-500/90 text-white text-[8px] text-center py-0.5 rounded-b-[4px]">MY</div>}
                     </div>
                   ))}
                 </div>
-                
-                <p className="text-center text-xs text-slate-500 mt-8">
-                  提示：卡牌已按花色点数自动整理
-                </p>
               </div>
             )}
 
-            {/* Tab 3: Captain */}
+            {/* Tab 4: Captain */}
             {activeTab === 'captain' && (
                user.isCaptain 
                 ? <CaptainView teamId={user.teamId} teamCards={teamCards} onPlayCards={handleCaptainPlay}/>
@@ -300,11 +261,9 @@ const App = () => {
             )}
           </div>
 
-          <div className="fixed bottom-0 w-full bg-slate-800 border-t border-slate-700 flex justify-around p-2 pb-4 z-30 shadow-lg">
-             <button onClick={() => setActiveTab('checkin')} className={`flex flex-col items-center ${activeTab === 'checkin' ? 'text-yellow-500' : 'text-slate-400'}`}><Navigation className="w-6 h-6"/><span className="text-[10px] mt-1">打卡</span></button>
-             <button onClick={() => setActiveTab('map')} className={`flex flex-col items-center ${activeTab === 'map' ? 'text-yellow-500' : 'text-slate-400'}`}>
-                <Map className="w-6 h-6"/><span className="text-[10px] mt-1">天眼</span>
-             </button>
+          <div className="fixed bottom-0 w-full bg-slate-800 border-t border-slate-700 flex justify-around p-2 pb-4 z-50 shadow-lg">
+             <button onClick={() => setActiveTab('checkin')} className={`flex flex-col items-center ${activeTab === 'checkin' ? 'text-yellow-500' : 'text-slate-400'}`}><Navigation className="w-6 h-6"/><span className="text-[10px] mt-1">列表</span></button>
+             <button onClick={() => setActiveTab('map')} className={`flex flex-col items-center ${activeTab === 'map' ? 'text-yellow-500' : 'text-slate-400'}`}><Map className="w-6 h-6"/><span className="text-[10px] mt-1">天眼</span></button>
              <button onClick={() => setActiveTab('mycards')} className={`flex flex-col items-center ${activeTab === 'mycards' ? 'text-yellow-500' : 'text-slate-400'}`}><User className="w-6 h-6"/><span className="text-[10px] mt-1">卡库</span></button>
              <button onClick={() => setActiveTab('captain')} className={`flex flex-col items-center ${activeTab === 'captain' ? 'text-yellow-500' : 'text-slate-400'}`}><Trophy className="w-6 h-6"/><span className="text-[10px] mt-1">队长</span></button>
           </div>

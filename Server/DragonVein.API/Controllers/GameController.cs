@@ -10,9 +10,20 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Configuration;
 using DragonVein.API.Data;
 using DragonVein.API.Models;
+using System.Collections.Generic;
+using DragonVein.API.Logic;
 
 namespace DragonVein.API.Controllers
 {
+    // [新增] 简单的内存状态 (为了持久化建议存数据库，这里简化演示)
+    public static class GameState
+    {
+        public static List<Card> LastPlayedCards = new List<Card>();
+        public static HandInfo LastHandInfo = new HandInfo();
+        public static int LastPlayerTeamId = 0;
+        public static string LastPlayerTeamName = "";
+    }
+
     [ApiController]
     [Route("api/[controller]")]
     public class GameController : ControllerBase
@@ -349,6 +360,72 @@ namespace DragonVein.API.Controllers
             return Ok(users);
         }
 
+        // [新增] 获取牌桌信息
+        [HttpGet("table-state")]
+        public IActionResult GetTableState()
+        {
+            return Ok(new
+            {
+                lastCards = GameState.LastPlayedCards,
+                lastTeamName = GameState.LastPlayerTeamName,
+                lastTeamId = GameState.LastPlayerTeamId
+            });
+        }
+
+        // [新增] 出牌接口
+        [HttpPost("play-cards")]
+        [Authorize]
+        public IActionResult PlayCards([FromBody] PlayCardRequest request)
+        {
+            var user = GetCurrentUser(); // 封装获取用户逻辑
+            if (user.TeamId == null) return BadRequest("无战队");
+
+            // 1. 校验：牌是否属于该战队
+            // 注意：这里需要从数据库查这几张牌，确认它们 currentTeamId == user.TeamId
+            var dbCards = _context.Cards.Where(c => request.CardIds.Contains(c.Id)).ToList();
+            if (dbCards.Count != request.CardIds.Count) return BadRequest("牌数据异常");
+            if (dbCards.Any(c => c.TeamId != user.TeamId)) return BadRequest("你没有这些牌");
+
+            // 2. 分析牌型
+            var newHand = GuandanLogic.AnalyzeHand(dbCards);
+            if (newHand.Type == HandType.None) return BadRequest("不合法的牌型 (支持单/对/三带二/顺子/炸弹)");
+
+            // 3. 校验：是否管得住上家
+            // 如果上家是自己人，或者没人出过，则不需要管
+            bool isFreeTurn = (GameState.LastPlayerTeamId == 0 || GameState.LastPlayerTeamId == user.TeamId.Value);
+
+            if (!isFreeTurn)
+            {
+                if (!GuandanLogic.CanBeat(newHand, GameState.LastHandInfo))
+                {
+                    return BadRequest("你的牌不够大！");
+                }
+            }
+
+            // 4. 执行出牌：更新数据库
+            // 将牌移出战队 (TeamId = null 或 设为已打出状态)
+            // 这里我们设一个特殊的 TeamId = -1 代表 "弃牌堆/已打出"
+            foreach (var c in dbCards)
+            {
+                c.TeamId = -1; // 移出队伍手牌
+            }
+            _context.SaveChanges();
+
+            // 5. 更新全局状态
+            GameState.LastPlayedCards = dbCards;
+            GameState.LastHandInfo = newHand;
+            GameState.LastPlayerTeamId = user.TeamId.Value;
+            GameState.LastPlayerTeamName = user.Team.Name;
+
+            return Ok(new { message = "出牌成功！" });
+        }
+        // 辅助：获取当前用户
+        private User GetCurrentUser()
+        {
+            var idClaim = User.Claims.FirstOrDefault(c => c.Type == "id");
+            if (idClaim == null) return null;
+            return _context.Users.Include(u => u.Team).FirstOrDefault(u => u.Id == int.Parse(idClaim.Value));
+        }
 
     }
 
@@ -367,7 +444,10 @@ namespace DragonVein.API.Controllers
         public double Lat { get; set; }
         public double Lng { get; set; }
     }
-
+    public class PlayCardRequest
+    {
+        public List<int> CardIds { get; set; }
+    }
 
 
 }

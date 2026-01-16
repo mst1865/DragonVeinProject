@@ -26,7 +26,7 @@ const MapTab = ({ locations, users, currentUser }) => {
           viewMode: '2D', 
           zoom: 14,
           center: center,
-          mapStyle: 'amap://styles/darkblue', // 极夜蓝风格，适配你的 UI
+          mapStyle: 'amap://styles/normal', 
         });
 
         // 2. 绘制任务点 (Locations)
