@@ -87,7 +87,8 @@ namespace DragonVein.API.Models
         public string Name { get; set; } // "通配牌", "调换牌"...
         public string Description { get; set; }
 
-        public int? UserId { get; set; } // 道具归属于个人
+        public int? UserId { get; set; }
+        public int? TeamId { get; set; }
         // 记录这个道具是从哪个站点抽出来的
         public int? OriginLocationId { get; set; }
         public bool IsUsed { get; set; } // 是否已使用

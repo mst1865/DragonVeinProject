@@ -76,7 +76,7 @@ const CardModal = ({ reward, onClose }) => {
         {/* 通配特效 */}
         {isWild && (
            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full text-center">
-             <span className="bg-yellow-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">✨ 通配变形 ✨</span>
+             <span className="bg-yellow-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">✨ 碎片合成 ✨</span>
            </div>
         )}
       </div>
@@ -149,7 +149,7 @@ const CardModal = ({ reward, onClose }) => {
 
         {/* 底部装饰 */}
         <div className="absolute bottom-4 text-[10px] text-white/30 tracking-widest uppercase">
-           稀有道具
+           道具牌
         </div>
       </div>
     );

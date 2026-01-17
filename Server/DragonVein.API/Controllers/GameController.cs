@@ -272,36 +272,53 @@ namespace DragonVein.API.Controllers
 
                     if (item == null) return BadRequest("所有资源已被搜刮殆尽！");
                     item.OriginLocationId = request.LocationId;
-                    item.UserId = user.Id; // 道具归个人
+                    item.UserId = user.Id;
+                    item.TeamId = teamId;
+                    item.IsUsed = false;   // 默认未消耗，先落库
                     _context.SaveChanges();
 
                     // **特殊逻辑：碎片牌自动结算**
                     if (item.Type == ItemType.Fragment)
                     {
-                        var team = _context.Teams.Find(teamId);
-                        team.FragmentCount++;
-                        item.IsUsed = true; // 碎片即刻消耗(或保留展示，这里设为消耗)
+                        var teamFragments = _context.ItemCards
+                            .Where(i => i.Type == ItemType.Fragment
+                                     && !i.IsUsed
+                                     && i.UserId.HasValue
+                                     && i.TeamId == teamId)
+                            .OrderBy(i => i.Id) // 按获取顺序或ID排序
+                            .ToList();
 
                         string extraMsg = "";
                         // 每3张触发一次奖励
-                        if (team.FragmentCount % 3 == 0)
+                        if (teamFragments.Count >= 3)
                         {
+                            // 3.1 消耗前 3 张碎片
+                            var fragmentsToConsume = teamFragments.Take(3).ToList();
+                            foreach (var f in fragmentsToConsume)
+                            {
+                                f.IsUsed = true; // 标记为已使用
+                            }
+                            // 3.2 发放一张额外的线索卡
                             var bonusCard = AssignStandardCardToTeam(teamId, user.Id, null);
                             if (bonusCard != null)
                             {
-                                extraMsg = " (碎片集齐3张，额外激活一张线索卡！)";
+                                extraMsg = " (队伍集齐3张碎片，自动兑换一张线索卡！)";
                                 resultData = new { type = "fragment_bonus", item = item, card = bonusCard };
                             }
                             else
                             {
+                                // 牌库空了的边缘情况
+                                extraMsg = " (碎片已集齐，但卡池已空...)";
                                 resultData = new { type = "item", data = item };
                             }
                         }
                         else
                         {
+                            // 未凑齐
                             resultData = new { type = "item", data = item };
+                            extraMsg = $" (当前队伍碎片进度: {teamFragments.Count}/3)";
                         }
-                        msg = $"获得碎片牌！当前进度 {team.FragmentCount % 3}/3{extraMsg}";
+                        msg = $"获得碎片牌！{extraMsg}";
                     }
                     else
                     {
