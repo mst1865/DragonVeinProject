@@ -481,6 +481,16 @@ namespace DragonVein.API.Controllers
         {
             // 直接查库，取 Id=1 的记录
             var state = _context.TableStates.FirstOrDefault(t => t.Id == 1);
+            // 计算各队剩余手牌数 (未打出的牌)
+            var teamCounts = _context.Teams
+                .Select(t => new
+                {
+                    id = t.Id,
+                    name = t.Name,
+                    count = t.Cards.Count(c => !c.IsPlayed)
+                })
+                .OrderByDescending(t => t.count) // 按剩余牌数降序排列
+                .ToList();
             if (state == null) return Ok(new { }); // 防御性代码
 
             return Ok(new
@@ -489,8 +499,10 @@ namespace DragonVein.API.Controllers
                 lastTeamName = state.LastTeamName,
                 // 反序列化 JSON 给前端
                 lastCards = string.IsNullOrEmpty(state.LastCardsJson)
-                            ? new List<object>()
-                            : JsonSerializer.Deserialize<List<object>>(state.LastCardsJson)
+                    ? new List<object>()
+                    : JsonSerializer.Deserialize<List<object>>(state.LastCardsJson),
+                // [新增] 返回队伍统计
+                teamCounts = teamCounts
             });
         }
 

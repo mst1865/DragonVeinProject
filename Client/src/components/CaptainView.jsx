@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, ShieldAlert, Swords, Crown, AlertCircle } from 'lucide-react';
+import { Trophy, ShieldAlert, Swords, Crown, AlertCircle, BarChart3 } from 'lucide-react';
 
 // --- 排序权重常量 (保持不变) ---
 const SUIT_ORDER = { '♠': 4, '♥': 3, '♣': 2, '♦': 1 };
@@ -12,13 +12,12 @@ const RANK_ORDER = {
 // 辅助：获取花色颜色
 const getSuitColor = (suit) => (suit === '♥' || suit === '♦') ? 'text-red-500' : 'text-slate-800';
 
-const CaptainView = ({ teamId, teamCards, onPlaySuccess,isCaptain }) => {
+const CaptainView = ({ teamId, teamCards, onPlaySuccess, isCaptain }) => {
   const [selectedIds, setSelectedIds] = useState([]);
   const [tableState, setTableState] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   
-
   // 1. 轮询获取实时战况
   const fetchTable = async () => {
     try {
@@ -106,6 +105,26 @@ const CaptainView = ({ teamId, teamCards, onPlaySuccess,isCaptain }) => {
   return (
     <div className="flex flex-col h-full pb-32"> {/* pb-32 防止底部导航遮挡 */}
       
+      {/* === [新增] 顶部：各队手牌统计 === */}
+      {tableState?.teamCounts && (
+        <div className="flex gap-2 overflow-x-auto mb-3 pb-1 no-scrollbar items-center">
+            <div className="flex-shrink-0 text-slate-500"><BarChart3 size={16}/></div>
+            {tableState.teamCounts.map(t => (
+                <div key={t.id} className={`
+                    flex-shrink-0 px-3 py-1 rounded-lg text-xs font-mono font-bold border flex items-center gap-2 shadow-sm
+                    ${t.id === teamId 
+                        ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-500' 
+                        : 'bg-slate-800 border-slate-700 text-slate-400'}
+                `}>
+                    <span className="truncate max-w-[4em]">{t.name}</span>
+                    <span className={`px-1.5 rounded text-white ${t.id === teamId ? 'bg-yellow-500' : 'bg-slate-600'}`}>
+                        {t.count}
+                    </span>
+                </div>
+            ))}
+        </div>
+      )}
+
       {/* === 上半部分：实时战况 (战场) === */}
       <div className={`
         flex-1 rounded-xl border-2 p-4 mb-4 relative overflow-hidden flex flex-col items-center justify-center transition-all duration-500
@@ -150,9 +169,6 @@ const CaptainView = ({ teamId, teamCards, onPlaySuccess,isCaptain }) => {
                 </div>
               ))}
             </div>
-            
-            {/* 牌型提示 (可选，如果有牌型数据的话) */}
-            {/* <div className="mt-2 text-xs text-white/40">炸弹 (4张)</div> */}
           </div>
         ) : (
           <div className="text-slate-500 text-sm flex flex-col items-center">
@@ -194,33 +210,20 @@ const CaptainView = ({ teamId, teamCards, onPlaySuccess,isCaptain }) => {
                     rounded-lg border shadow-md 
                     cursor-pointer transition-transform duration-200
                     flex flex-col
-                    
-                    /* 叠牌核心逻辑 */
                     -ml-10 mb-4 
-                    /* 第一张牌不向左缩进 */
                     first:ml-0 
-                    
-                    /* 选中状态：上浮 */
                     ${isSelected ? '-translate-y-6 z-[100] ring-2 ring-yellow-500 shadow-xl' : 'hover:-translate-y-2'}
                     ${baseStyle}
                  `}
-                 // 必须按顺序层叠，保证左边的在底下，或者右边的压住左边(看你喜好)
-                 // 这里 idx 越大 zIndex 越高 => 右边的压住左边的。
-                 // 配合 -ml-10，每张牌露出左侧约 1.5rem (w-16是4rem, 4 - 2.5 = 1.5)
                  style={{ zIndex: isSelected ? 100 : idx }}
                >
-                 {/* === 左侧信息条 (Stacking 可见区域) === */}
                  <div className="absolute top-1 left-1.5 leading-none text-center w-4 flex flex-col items-center">
                     <div className="text-base font-black font-mono tracking-tighter">{c.rank}</div>
                     <div className="text-sm mt-0.5">{c.suit}</div>
                  </div>
-                 
-                 {/* === 中间装饰 (被遮挡部分) === */}
                  <div className="flex-1 flex items-end justify-end p-1 opacity-20">
                     <span className="text-3xl">{c.suit}</span>
                  </div>
-
-                 {/* 选中高亮遮罩 */}
                  {isSelected && <div className="absolute inset-0 bg-yellow-500/10 rounded-lg pointer-events-none"></div>}
                </div>
              )
@@ -229,21 +232,25 @@ const CaptainView = ({ teamId, teamCards, onPlaySuccess,isCaptain }) => {
 
         {/* 操作区 */}
         <div className="mt-4 flex flex-col gap-3">
-            {/* 错误提示 */}
             {errorMsg && (
                 <div className="text-red-300 text-xs flex items-center justify-center bg-red-900/50 py-2 rounded border border-red-800 animate-pulse">
                     <AlertCircle size={14} className="mr-1"/> {errorMsg}
                 </div>
             )}
             
-            {/* 按钮状态逻辑 */}
+            {/* 按钮状态逻辑：[修改] 增加 !isCaptain 判断 */}
             {isMyTable ? (
-                // 如果是我方占领 -> 禁止出牌，显示“守擂中”
+                // 如果是我方占领 -> 禁止出牌
                 <button disabled className="w-full py-3 rounded font-bold bg-yellow-600/50 text-yellow-100 cursor-not-allowed border border-yellow-600/50 flex items-center justify-center gap-2">
                     <Crown size={18}/> 我方守擂中...
                 </button>
+            ) : !isCaptain ? (
+                // [新增] 如果不是队长 -> 禁止出牌
+                <button disabled className="w-full py-3 rounded font-bold bg-slate-700 text-slate-500 cursor-not-allowed border border-slate-600 flex items-center justify-center gap-2">
+                    <ShieldAlert size={18}/> 仅队长可出牌决策
+                </button>
             ) : (
-                // 如果是敌方/空 -> 允许出牌
+                // 如果是队长 且 (敌方/空) -> 允许出牌
                 <button 
                     onClick={handlePlay}
                     disabled={selectedIds.length === 0 || loading}

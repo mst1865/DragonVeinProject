@@ -553,8 +553,10 @@ const App = () => {
 
             {/* Tab 4: Captain */}
             {activeTab === 'captain' && (
-                <CaptainView teamId={user.teamId} teamCards={teamCards} onPlayCards={handleCaptainPlay} isCaptain={user.isCaptain}/>
-            )}
+                user.isCaptain 
+                ? <CaptainView teamId={user.teamId} teamCards={teamCards} onPlayCards={handleCaptainPlay} isCaptain={user.isCaptain}/>
+                : <div className="text-center mt-20 text-slate-500">⚠️ 权限不足<br/>仅队长可访问指挥台</div>
+             )}
           </div>
 
           <div className="fixed bottom-0 w-full bg-slate-800 border-t border-slate-700 flex justify-around p-2 pb-4 z-50 shadow-lg">
