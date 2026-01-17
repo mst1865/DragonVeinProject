@@ -64,6 +64,7 @@ namespace DragonVein.API.Models
         public int? TeamId { get; set; } // 当前归属战队（为空表示未被拾取）
         //记录这张牌是谁获取的
         public int? UserId { get; set; }
+        public bool IsPlayed { get; set; }
     }
 
     // [新增] 战队-站点进度表 (用于判断首达和限额)

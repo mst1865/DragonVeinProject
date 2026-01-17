@@ -61,7 +61,7 @@ namespace DragonVein.API.Controllers
                     teamId = user.Team?.Id,          // 可能为 null
                     teamName = user.Team?.Name,      // 可能为 null
                     teamDesc = user.Team?.Description,
-                    isCaptain = user.Username.EndsWith("01")
+                    isCaptain = user.IsCaptain
                 }
             });
         }
@@ -177,7 +177,7 @@ namespace DragonVein.API.Controllers
 
             // 获取该战队的所有卡牌
             var cards = _context.Cards
-                .Where(c => c.TeamId == user.TeamId)
+                .Where(c => c.TeamId == user.TeamId && !c.IsPlayed)
                 .OrderBy(c => c.InitialLocationId) // 或者是按点数排序
                 .ToList();
 
@@ -257,7 +257,7 @@ namespace DragonVein.API.Controllers
                 // 5. 【规则】随机抽取一张属于该站点且未被拿走的牌
                 // OrderBy(Guid.NewGuid()) 是数据库层面的随机排序
                 var card = _context.Cards
-                    .Where(c => c.InitialLocationId == request.LocationId && c.TeamId == null)
+                    .Where(c => c.InitialLocationId == request.LocationId && c.TeamId == null && !c.IsPlayed)
                     .OrderBy(c => Guid.NewGuid())
                     .FirstOrDefault();
 
@@ -383,8 +383,10 @@ namespace DragonVein.API.Controllers
             // 1. 校验：牌是否属于该战队
             // 注意：这里需要从数据库查这几张牌，确认它们 currentTeamId == user.TeamId
             var dbCards = _context.Cards.Where(c => request.CardIds.Contains(c.Id)).ToList();
-            if (dbCards.Count != request.CardIds.Count) return BadRequest("牌数据异常");
+            // 校验 ownership
             if (dbCards.Any(c => c.TeamId != user.TeamId)) return BadRequest("你没有这些牌");
+            if (dbCards.Any(c => c.IsPlayed)) return BadRequest("有牌已经出过了"); // ✅ 双重保险
+            if (dbCards.Count != request.CardIds.Count) return BadRequest("牌数据异常");
 
             // 2. 分析牌型
             var newHand = GuandanLogic.AnalyzeHand(dbCards);
@@ -407,7 +409,7 @@ namespace DragonVein.API.Controllers
             // 这里我们设一个特殊的 TeamId = -1 代表 "弃牌堆/已打出"
             foreach (var c in dbCards)
             {
-                c.TeamId = -1; // 移出队伍手牌
+                c.IsPlayed = true;
             }
             _context.SaveChanges();
 

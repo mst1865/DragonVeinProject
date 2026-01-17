@@ -40,7 +40,7 @@ const LoginPage = ({ onLogin }) => {
               value={empId} 
               onChange={e => setEmpId(e.target.value)} 
               className="w-full bg-slate-700 text-white rounded p-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" 
-              placeholder="工号 (例如 agent001)" 
+              placeholder="工号" 
             />
           </div>
           <div>
@@ -49,7 +49,7 @@ const LoginPage = ({ onLogin }) => {
               value={name} 
               onChange={e => setName(e.target.value)} 
               className="w-full bg-slate-700 text-white rounded p-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" 
-              placeholder="姓名 (例如 特工001)" 
+              placeholder="姓名"
             />
           </div>
           
