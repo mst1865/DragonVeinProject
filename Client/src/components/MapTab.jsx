@@ -38,7 +38,7 @@ const MapTab = ({ locations, users, currentUser }) => {
             // 圆形区域
             const circle = new AMap.Circle({
                 center: [lng, lat],
-                radius: loc.radius, // 30米
+                radius: 30, // 30米
                 borderWeight: 1,
                 strokeColor: "#EAB308", // yellow-500
                 strokeOpacity: 1,
@@ -81,26 +81,37 @@ const MapTab = ({ locations, users, currentUser }) => {
   }, []); // 初始化只执行一次
 
   // 3. 动态更新特工位置 (Users)
-  useEffect(() => {
-    if (!mapInstance.current || !users) return;
-    
-    // 清除旧的特工标记 (实际生产可用 Map 维护 Marker 实例来 update position，这里简化为重绘)
-    // 注意：这里没有清除 locations 的标记，需要区分
-    // 简单做法：我们把特工 Marker 存在一个 ref 数组里，每次清空
-    
-    // ... (为简化代码，这里省略 Marker 缓存逻辑，高频刷新建议优化) ...
-    // 下面演示添加 Marker：
-    
-    users.forEach(u => {
-        const { lat, lng } = wgs84ToGcj02(u.lat, u.lng);
-        
-        // 区分自己、队友、敌人
-        let markerColor = '#94A3B8'; // gray (敌人)
-        if (u.teamId === currentUser.teamId) markerColor = '#3B82F6'; // blue (队友)
-        if (u.id === currentUser.id) markerColor = '#EAB308'; // yellow (自己)
+  // ... existing imports
 
-        // 使用 Canvas 或 Content 创建点
-        const markerContent = `
+// 3. 动态更新特工位置 (Users)
+useEffect(() => {
+  if (!mapInstance.current || !users) return;
+
+  // ... (清理旧 Marker 的逻辑)
+
+  users.forEach(u => {
+      // 防御性检查，如果原始数据缺失，直接跳过
+      if (u.lat === undefined || u.lng === undefined || u.lat === null || u.lng === null) {
+          console.warn('跳过无效坐标用户:', u.realName);
+          return;
+      }
+
+      // 尝试转换坐标
+      const { lat, lng } = wgs84ToGcj02(Number(u.lat), Number(u.lng));
+      
+      // 检查转换结果是否包含 NaN
+      if (isNaN(lat) || isNaN(lng)) {
+          console.warn('坐标转换失败 (NaN):', u.realName, u.lat, u.lng);
+          return;
+      }
+      
+      // 区分自己、队友、敌人
+      let markerColor = '#94A3B8'; // gray (敌人)
+      if (u.teamId === currentUser.teamId) markerColor = '#3B82F6'; // blue (队友)
+      if (u.id === currentUser.id) markerColor = '#EAB308'; // yellow (自己)
+
+      // ... 后续创建 Marker 的代码保持不变
+      const markerContent = `
             <div style="
                 width: 14px; height: 14px; 
                 background: ${markerColor}; 
@@ -112,23 +123,17 @@ const MapTab = ({ locations, users, currentUser }) => {
                 ${u.realName}
             </div>
         `;
+      const marker = new AMap.Marker({
+          position: [lng, lat], // 这里现在是安全的
+          content: markerContent,
+          offset: new AMap.Pixel(-7, -7),
+          zIndex: u.id === currentUser.id ? 100 : 80
+      });
+      marker.setMap(mapInstance.current);
+      if (u.id === currentUser.id) mapInstance.current.setCenter([lng, lat]);
+  });
 
-        const marker = new AMap.Marker({
-            position: [lng, lat],
-            content: markerContent,
-            offset: new AMap.Pixel(-7, -7),
-            zIndex: u.id === currentUser.id ? 100 : 80
-        });
-        marker.setMap(mapInstance.current);
-
-        // 如果是自己，中心跟随 (可选)
-        // if (u.id === currentUser.id) mapInstance.current.setCenter([lng, lat]);
-    });
-
-    // 这一步比较粗暴，实际上应该维护 markers 数组来 mapInstance.current.remove(oldMarkers)
-    // 建议在 useEffect 外部定义一个 markersRef = useRef([]) 
-    
-  }, [users, currentUser]);
+}, [users, currentUser]);
 
   return <div ref={mapContainer} style={{ width: '100%', height: '100%' }} className="rounded-xl overflow-hidden shadow-inner" />;
 };
