@@ -12,6 +12,7 @@ using DragonVein.API.Data;
 using DragonVein.API.Models;
 using System.Collections.Generic;
 using DragonVein.API.Logic;
+using System.Text.Json;
 
 namespace DragonVein.API.Controllers
 {
@@ -131,7 +132,7 @@ namespace DragonVein.API.Controllers
                     teamId = user.Team?.Id,
                     teamName = user.Team?.Name,
                     teamDesc = user.Team?.Description,
-                    isCaptain = user.Username.EndsWith("01")
+                    isCaptain = user.IsCaptain
                 }
             });
         }
@@ -178,119 +179,233 @@ namespace DragonVein.API.Controllers
             // 获取该战队的所有卡牌
             var cards = _context.Cards
                 .Where(c => c.TeamId == user.TeamId && !c.IsPlayed)
-                .OrderBy(c => c.InitialLocationId) // 或者是按点数排序
+                .OrderBy(c => c.Rank) // 或者是按点数排序
                 .ToList();
 
             return Ok(cards);
         }
 
-        // [新增] 抽卡接口
+        // [新增] 获取我的道具
+        [HttpGet("my-items")]
+        [Authorize]
+        public IActionResult GetMyItems()
+        {
+            var user = GetCurrentUser();
+            var items = _context.ItemCards.Where(i => i.UserId == user.Id && !i.IsUsed).ToList();
+            return Ok(items);
+        }
+        // 抽卡接口 (混合池 + 碎片逻辑)
         [HttpPost("draw")]
-        [Authorize] // 需要登录
+        [Authorize]
         public IActionResult DrawCard([FromBody] DrawRequest request)
         {
-            // 1. 获取当前用户和战队
-            var userIdStr = User.Claims.FirstOrDefault(c => c.Type == "id")?.Value;
-            if (userIdStr == null) return Unauthorized();
-            int userId = int.Parse(userIdStr);
-
-            var user = _context.Users.Find(userId);
-            if (user.TeamId == null) return BadRequest("您还没有加入战队！");
+            var user = GetCurrentUser();
+            if (user.TeamId == null) return BadRequest("无战队");
             int teamId = user.TeamId.Value;
-
-            // 开启事务，防止多个人同时抢最后一张牌或抢首达
+            //开启事务
             using var transaction = _context.Database.BeginTransaction();
             try
             {
-                // 1. 检查个人限制：一个人在一个站点只能拿一张
-                bool hasCardHere = _context.Cards.Any(c =>
-                    c.InitialLocationId == request.LocationId &&
-                    c.UserId == userId); // 检查该站点是否有该用户的记录
-
-                if (hasCardHere)
+                // 单人单点限抽一次
+                // 检查 Cards 表：是否有该用户在该站点获取的牌（包括已打出的）
+                bool hasCard = _context.Cards.Any(c =>
+                    c.UserId == user.Id &&
+                    c.OriginLocationId == request.LocationId);
+                // 检查 ItemCards 表：是否有该用户在该站点获取的道具（包括已使用的）
+                bool hasItem = _context.ItemCards.Any(i =>
+                    i.UserId == user.Id &&
+                    i.OriginLocationId == request.LocationId);
+                if ((hasCard || hasItem) && user.Id!=162)
                 {
-                    return BadRequest("每人每站限领一张！\n您已在此处获得过线索卡。");
+                    return BadRequest("您已在此站点探索过，请前往下一个坐标！");
                 }
-                // 2. 获取该战队在此站点的进度
-                var progress = _context.TeamLocationProgresses
-                    .FirstOrDefault(p => p.TeamId == teamId && p.LocationId == request.LocationId);
-
-                // 如果是第一次来这个站点
-                if (progress == null)
+                // --- 核心抽卡逻辑 ---
+                // --- 1. 计算剩余库存 ---
+                int availableCards = _context.Cards.Count(c => c.TeamId == null && !c.IsPlayed);
+                int availableItems = _context.ItemCards.Count(i => i.UserId == null && !i.IsUsed);
+                if (availableCards == 0 && availableItems == 0)
                 {
-                    progress = new TeamLocationProgress
+                    return BadRequest("本区域及全城的资源已被搜刮殆尽！");
+                }
+                // --- 2. 概率判定 (drawStandard) ---
+                var random = new Random();
+                // 设为 50% (因为 80张牌 vs 83张道具，接近 1:1)
+                bool tryDrawCard = random.Next(100) < 50;
+                // --- 3. 智能回退逻辑 ---
+                bool finalDrawCard = false;
+                if (tryDrawCard)
+                {
+                    // 如果想抽卡，且有卡 -> 抽卡
+                    // 如果想抽卡，但没卡了 -> 只能抽道具
+                    finalDrawCard = (availableCards > 0);
+                }
+                else
+                {
+                    // 如果想抽道具，且有道具 -> 抽道具
+                    // 如果想抽道具，但没道具了 -> 只能抽卡
+                    if (availableItems > 0)
                     {
-                        TeamId = teamId,
-                        LocationId = request.LocationId,
-                        CardsCollected = 0,
-                        IsFirstArrival = false,
-                        FirstCheckInTime = DateTime.Now
-                    };
-
-                    // 3. 【规则】判断是否是全服第一个到达该站点的战队
-                    // 检查数据库里有没有其他战队在这个站点的记录
-                    bool anyoneBeenHere = _context.TeamLocationProgresses
-                        .Any(p => p.LocationId == request.LocationId);
-
-                    if (!anyoneBeenHere)
-                    {
-                        progress.IsFirstArrival = true; // 恭喜，你们是第一名
+                        finalDrawCard = false;
                     }
-
-                    _context.TeamLocationProgresses.Add(progress);
-                    _context.SaveChanges(); // 先保存进度状态
+                    else
+                    {
+                        finalDrawCard = true; // 道具没了，强制抽卡
+                    }
                 }
 
-                // 4. 【规则】计算最大可拿牌数
-                // 基础4张。如果是前4站(ID<=4)且是首达，则为5张。
-                int maxCards = 4;
-                if (request.LocationId <= 4 && progress.IsFirstArrival)
+                // --- 4. 执行抽取 ---
+                object resultData = null;
+                string msg = "";
+                if (finalDrawCard)
                 {
-                    maxCards = 5;
+                    var card = AssignStandardCardToTeam(teamId, user.Id, request.LocationId);
+                    resultData = new { type = "card", data = card };
+                    msg = "获得线索卡！";
                 }
-
-                if (progress.CardsCollected >= maxCards)
+                else
                 {
-                    return BadRequest($"本站点资源已耗尽！\n你们战队已获取 {progress.CardsCollected}/{maxCards} 张线索卡。");
+                    // 抽道具牌
+                    var item = _context.ItemCards
+                        .Where(i => i.UserId == null && !i.IsUsed)
+                        .OrderBy(x => Guid.NewGuid())
+                        .FirstOrDefault();
+
+                    if (item == null) return BadRequest("所有资源已被搜刮殆尽！");
+                    item.OriginLocationId = request.LocationId;
+                    item.UserId = user.Id; // 道具归个人
+                    _context.SaveChanges();
+
+                    // **特殊逻辑：碎片牌自动结算**
+                    if (item.Type == ItemType.Fragment)
+                    {
+                        var team = _context.Teams.Find(teamId);
+                        team.FragmentCount++;
+                        item.IsUsed = true; // 碎片即刻消耗(或保留展示，这里设为消耗)
+
+                        string extraMsg = "";
+                        // 每3张触发一次奖励
+                        if (team.FragmentCount % 3 == 0)
+                        {
+                            var bonusCard = AssignStandardCardToTeam(teamId, user.Id, null);
+                            if (bonusCard != null)
+                            {
+                                extraMsg = " (碎片集齐3张，额外激活一张线索卡！)";
+                                resultData = new { type = "fragment_bonus", item = item, card = bonusCard };
+                            }
+                            else
+                            {
+                                resultData = new { type = "item", data = item };
+                            }
+                        }
+                        else
+                        {
+                            resultData = new { type = "item", data = item };
+                        }
+                        msg = $"获得碎片牌！当前进度 {team.FragmentCount % 3}/3{extraMsg}";
+                    }
+                    else
+                    {
+                        resultData = new { type = "item", data = item };
+                        msg = $"获得 {item.Name}！";
+                    }
                 }
-
-                // 5. 【规则】随机抽取一张属于该站点且未被拿走的牌
-                // OrderBy(Guid.NewGuid()) 是数据库层面的随机排序
-                var card = _context.Cards
-                    .Where(c => c.InitialLocationId == request.LocationId && c.TeamId == null && !c.IsPlayed)
-                    .OrderBy(c => Guid.NewGuid())
-                    .FirstOrDefault();
-
-                if (card == null)
-                {
-                    return BadRequest("来晚一步，该站点的所有卡牌已被搜刮一空！");
-                }
-
-                // 6. 更新数据
-                card.TeamId = teamId; // 标记归属
-                card.UserId = userId;
-                progress.CardsCollected++; // 计数+1
-
                 _context.SaveChanges();
                 transaction.Commit();
 
-                return Ok(new
-                {
-                    card = card,
-                    message = "获取成功",
-                    progress = new
-                    {
-                        collected = progress.CardsCollected,
-                        max = maxCards,
-                        isFirstBonus = (maxCards == 5)
-                    }
-                });
+                return Ok(new { message = msg, result = resultData });
             }
             catch (Exception ex)
             {
                 transaction.Rollback();
-                return StatusCode(500, "时空裂缝波动，获取失败: " + ex.Message);
+                return StatusCode(500, ex.Message);
             }
+        }
+
+        // 使用通配牌
+        [HttpPost("use-wild")]
+        [Authorize]
+        public IActionResult UseWildCard([FromBody] WildCardRequest req)
+        {
+            var user = GetCurrentUser();
+            var item = _context.ItemCards.FirstOrDefault(i => i.Id == req.ItemId && i.UserId == user.Id && !i.IsUsed);
+            if (item == null || item.Type != ItemType.Wild) return BadRequest("无效道具");
+
+            // 变身逻辑：直接生成一张新牌给战队
+            var newCard = new Card
+            {
+                Suit = req.Suit,
+                Rank = req.Rank,
+                Display = req.Suit + req.Rank,
+                TeamId = user.TeamId,
+                UserId = user.Id,
+                IsPlayed = false,
+                IsWildGenerated = true
+            };
+            _context.Cards.Add(newCard);
+
+            item.IsUsed = true;
+            _context.SaveChanges();
+            return Ok(new { message = "通配牌使用成功，已生成线索卡！", card = newCard });
+        }
+
+        // [新增] 使用调换牌
+        [HttpPost("use-swap")]
+        [Authorize]
+        public IActionResult UseSwapCard([FromBody] SwapCardRequest req)
+        {
+            var user = GetCurrentUser();
+            var item = _context.ItemCards.FirstOrDefault(i => i.Id == req.ItemId && i.UserId == user.Id && !i.IsUsed);
+            if (item == null || item.Type != ItemType.Swap) return BadRequest("无效道具");
+
+            using var trans = _context.Database.BeginTransaction();
+            try
+            {
+                // 1. 获取我方指定牌
+                var myCard = _context.Cards.FirstOrDefault(c => c.Id == req.MyCardId && c.TeamId == user.TeamId && !c.IsPlayed);
+                if (myCard == null) return BadRequest("我方卡牌不存在或已打出");
+
+                // 2. 随机获取对方一张牌
+                var targetCard = _context.Cards
+                    .Where(c => c.TeamId == req.TargetTeamId && !c.IsPlayed)
+                    .OrderBy(c => Guid.NewGuid())
+                    .FirstOrDefault();
+
+                if (targetCard == null) return BadRequest("对方战队已无手牌，无法调换！");
+
+                // 3. 交换 TeamId
+                int? tempTeam = myCard.TeamId;
+                myCard.TeamId = targetCard.TeamId;
+                targetCard.TeamId = tempTeam;
+
+                item.IsUsed = true;
+                _context.SaveChanges();
+                trans.Commit();
+
+                return Ok(new { message = $"调换成功！失去了 {myCard.Display}，夺取了 {targetCard.Display}" });
+            }
+            catch
+            {
+                trans.Rollback();
+                throw;
+            }
+        }
+
+        // 辅助：从牌库发一张牌给战队
+        private Card AssignStandardCardToTeam(int teamId, int userId,int? locationId)
+        {
+            var card = _context.Cards
+                .Where(c => c.TeamId == null && !c.IsPlayed)
+                .OrderBy(c => Guid.NewGuid())
+                .FirstOrDefault();
+
+            if (card != null)
+            {
+                card.TeamId = teamId;
+                card.UserId = userId;
+                card.OriginLocationId = locationId;
+                _context.SaveChanges();
+            }
+            return card;
         }
 
         // --- 3. 队长视图：查看战队手牌 ---
@@ -364,64 +479,93 @@ namespace DragonVein.API.Controllers
         [HttpGet("table-state")]
         public IActionResult GetTableState()
         {
+            // 直接查库，取 Id=1 的记录
+            var state = _context.TableStates.FirstOrDefault(t => t.Id == 1);
+            if (state == null) return Ok(new { }); // 防御性代码
+
             return Ok(new
             {
-                lastCards = GameState.LastPlayedCards,
-                lastTeamName = GameState.LastPlayerTeamName,
-                lastTeamId = GameState.LastPlayerTeamId
+                lastTeamId = state.LastTeamId,
+                lastTeamName = state.LastTeamName,
+                // 反序列化 JSON 给前端
+                lastCards = string.IsNullOrEmpty(state.LastCardsJson)
+                            ? new List<object>()
+                            : JsonSerializer.Deserialize<List<object>>(state.LastCardsJson)
             });
         }
 
-        // [新增] 出牌接口
         [HttpPost("play-cards")]
         [Authorize]
         public IActionResult PlayCards([FromBody] PlayCardRequest request)
         {
-            var user = GetCurrentUser(); // 封装获取用户逻辑
+            var user = GetCurrentUser();
             if (user.TeamId == null) return BadRequest("无战队");
 
-            // 1. 校验：牌是否属于该战队
-            // 注意：这里需要从数据库查这几张牌，确认它们 currentTeamId == user.TeamId
+            // 1. 查库获取当前牌桌状态
+            var tableState = _context.TableStates.FirstOrDefault(t => t.Id == 1);
+            if (tableState == null) return StatusCode(500, "牌桌未初始化");
+
+            // 2. 查牌 & 校验 (保持不变)
             var dbCards = _context.Cards.Where(c => request.CardIds.Contains(c.Id)).ToList();
-            // 校验 ownership
-            if (dbCards.Any(c => c.TeamId != user.TeamId)) return BadRequest("你没有这些牌");
-            if (dbCards.Any(c => c.IsPlayed)) return BadRequest("有牌已经出过了"); // ✅ 双重保险
             if (dbCards.Count != request.CardIds.Count) return BadRequest("牌数据异常");
+            if (dbCards.Any(c => c.TeamId != user.TeamId)) return BadRequest("你没有这些牌");
+            if (dbCards.Any(c => c.IsPlayed)) return BadRequest("手慢了，牌已被打出");
 
-            // 2. 分析牌型
+            // 3. 分析牌型 (保持不变)
             var newHand = GuandanLogic.AnalyzeHand(dbCards);
-            if (newHand.Type == HandType.None) return BadRequest("不合法的牌型 (支持单/对/三带二/顺子/炸弹)");
+            if (newHand.Type == HandType.None) return BadRequest("不合法的牌型");
 
-            // 3. 校验：是否管得住上家
-            // 如果上家是自己人，或者没人出过，则不需要管
-            bool isFreeTurn = (GameState.LastPlayerTeamId == 0 || GameState.LastPlayerTeamId == user.TeamId.Value);
-
-            if (!isFreeTurn)
+            // 4. 比大小逻辑 (使用 database 中的 state)
+            // 构造旧牌型对象用于比较
+            var lastHandInfo = new HandInfo
             {
-                if (!GuandanLogic.CanBeat(newHand, GameState.LastHandInfo))
+                Type = (HandType)tableState.LastHandType,
+                Value = tableState.LastHandValue,
+                Count = tableState.LastHandCount,
+                Level = tableState.LastHandLevel
+            };
+
+            // 判定逻辑
+            if (tableState.LastTeamId == 0) { /* 开局, Pass */ }
+            else if (tableState.LastTeamId == user.TeamId)
+            {
+                return BadRequest("当前已经是你方占据战场！");
+            }
+            else
+            {
+                if (!GuandanLogic.CanBeat(newHand, lastHandInfo))
                 {
                     return BadRequest("你的牌不够大！");
                 }
             }
 
-            // 4. 执行出牌：更新数据库
-            // 将牌移出战队 (TeamId = null 或 设为已打出状态)
-            // 这里我们设一个特殊的 TeamId = -1 代表 "弃牌堆/已打出"
-            foreach (var c in dbCards)
-            {
-                c.IsPlayed = true;
-            }
-            _context.SaveChanges();
+            // 5. 执行出牌
+            foreach (var c in dbCards) c.IsPlayed = true;
 
-            // 5. 更新全局状态
-            GameState.LastPlayedCards = dbCards;
-            GameState.LastHandInfo = newHand;
-            GameState.LastPlayerTeamId = user.TeamId.Value;
-            GameState.LastPlayerTeamName = user.Team.Name;
+            // ✅ 更新数据库中的牌桌状态
+            tableState.LastTeamId = user.TeamId.Value;
+            tableState.LastTeamName = user.Team.Name;
 
-            return Ok(new { message = "出牌成功！" });
+            tableState.LastHandType = (int)newHand.Type;
+            tableState.LastHandValue = newHand.Value;
+            tableState.LastHandCount = newHand.Count;
+            tableState.LastHandLevel = newHand.Level;
+
+            // 序列化卡牌视觉信息存入 JSON (只需存 UI 需要的字段)
+            var visualCards = dbCards.Select(c => new {
+                suit = c.Suit,
+                rank = c.Rank,
+                isWildGenerated = c.IsWildGenerated
+            }).ToList();
+            tableState.LastCardsJson = JsonSerializer.Serialize(visualCards);
+
+            _context.SaveChanges(); // 一次性保存
+
+            return Ok(new { message = "出牌成功！你方已占领战场！" });
         }
-        // 辅助：获取当前用户
+
+
+        // 获取当前用户
         private User GetCurrentUser()
         {
             var idClaim = User.Claims.FirstOrDefault(c => c.Type == "id");
@@ -450,6 +594,8 @@ namespace DragonVein.API.Controllers
     {
         public List<int> CardIds { get; set; }
     }
+    public class WildCardRequest { public int ItemId { get; set; } public string Suit { get; set; } public string Rank { get; set; } }
+    public class SwapCardRequest { public int ItemId { get; set; } public int MyCardId { get; set; } public int TargetTeamId { get; set; } }
 
 
 }

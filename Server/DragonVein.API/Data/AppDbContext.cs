@@ -12,8 +12,9 @@ namespace DragonVein.API.Data
         public DbSet<User> Users { get; set; }
         public DbSet<Team> Teams { get; set; }
         public DbSet<Card> Cards { get; set; }
-        public DbSet<TeamLocationProgress> TeamLocationProgresses { get; set; }
         public DbSet<Location> Locations { get; set; }
+        public DbSet<ItemCard> ItemCards { get; set; }
+        public DbSet<TableState> TableStates { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -52,7 +53,6 @@ namespace DragonVein.API.Data
                     {
                         var card = cards[cardIndex];
                         card.Id = cardIdCounter++;
-                        card.InitialLocationId = locId; // 标记这张牌属于哪个站点
                         cardIndex++;
                     }
                 }
