@@ -23,7 +23,9 @@ const MapTab = ({ locations, users, currentUser }) => {
         // 1. 初始化地图
         // 默认中心点：紫金山区域
         const center = [118.8300, 32.0550]; 
-        
+        //准备一个数组存储路径坐标  
+        const path = [];
+
         mapInstance.current = new AMap.Map(mapContainer.current, {
           viewMode: '2D', 
           zoom: 14,
@@ -36,7 +38,9 @@ const MapTab = ({ locations, users, currentUser }) => {
             // 假设数据库存的是 GCJ02 或者直接是 WGS84。如果是 WGS84 需要转
             // 这里假设数据库存的坐标是 WGS84 (和手机GPS一致)，转换后显示
             const { lat, lng } = wgs84ToGcj02(loc.lat, loc.lng);
-            
+
+            path.push([lng, lat]);
+
             // 圆形区域
             const circle = new AMap.Circle({
                 center: [lng, lat],
@@ -68,6 +72,22 @@ const MapTab = ({ locations, users, currentUser }) => {
             });
             text.setMap(mapInstance.current);
         });
+        // 绘制连接所有打卡点的折线
+        if (path.length > 1) {
+            const polyline = new AMap.Polyline({
+                path: path,              // 设置线路径
+                strokeColor: "#3B82F6",  // 线颜色 (比如蓝色)
+                strokeOpacity: 0.8,      // 线透明度
+                strokeWeight: 6,         // 线宽
+                strokeStyle: "solid",    // 线样式
+                lineJoin: 'round',       // 折线拐点连接处样式
+                lineCap: 'round',        // 线帽样式
+                zIndex: 40,              // 层级 (比 marker 低，比底图高)
+                showDir: true,           // 显示方向箭头 (可选)
+            });
+            polyline.setMap(mapInstance.current);
+        }
+                
 
       })
       .catch((e) => {

@@ -12,11 +12,12 @@ const RANK_ORDER = {
 // 辅助：获取花色颜色
 const getSuitColor = (suit) => (suit === '♥' || suit === '♦') ? 'text-red-500' : 'text-slate-800';
 
-const CaptainView = ({ teamId, teamCards, onPlaySuccess }) => {
+const CaptainView = ({ teamId, teamCards, onPlaySuccess,isCaptain }) => {
   const [selectedIds, setSelectedIds] = useState([]);
   const [tableState, setTableState] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  
 
   // 1. 轮询获取实时战况
   const fetchTable = async () => {
