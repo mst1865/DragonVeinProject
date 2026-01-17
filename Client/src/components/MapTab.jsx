@@ -5,6 +5,8 @@ import { wgs84ToGcj02 } from '../utils/coord';
 const MapTab = ({ locations, users, currentUser }) => {
   const mapContainer = useRef(null);
   const mapInstance = useRef(null);
+  // 用于存储所有用户 Marker 的引用，以便后续清除
+  const userMarkersRef = useRef([]);
 
   useEffect(() => {
     // 设置安全密钥 (JSAPI 2.0 必须)
@@ -80,15 +82,16 @@ const MapTab = ({ locations, users, currentUser }) => {
     };
   }, []); // 初始化只执行一次
 
-  // 3. 动态更新特工位置 (Users)
-  // ... existing imports
-
 // 3. 动态更新特工位置 (Users)
 useEffect(() => {
   if (!mapInstance.current || !users) return;
-
-  // ... (清理旧 Marker 的逻辑)
-
+  // 先清理旧的 Markers
+  if (userMarkersRef.current.length > 0) {
+      userMarkersRef.current.forEach(marker => {
+          marker.setMap(null); // 从地图上移除
+      });
+      userMarkersRef.current = []; // 清空数组
+  }
   users.forEach(u => {
       // 防御性检查，如果原始数据缺失，直接跳过
       if (u.lat === undefined || u.lng === undefined || u.lat === null || u.lng === null) {
@@ -130,6 +133,8 @@ useEffect(() => {
           zIndex: u.id === currentUser.id ? 100 : 80
       });
       marker.setMap(mapInstance.current);
+      // 将新创建的 marker 存入 ref
+      userMarkersRef.current.push(marker);
       if (u.id === currentUser.id) mapInstance.current.setCenter([lng, lat]);
   });
 
