@@ -119,17 +119,17 @@ const App = () => {
 
       // 位置同步循环 (每5秒)
       const syncLocation = async () => {
-        if (!coords.lat) return;
         try {
+          // 拉取全员
+          const res = await fetch('/api/game/locations/all', { headers });
+          if (res.ok) setAllUsers(await res.json());
           // 上传自己
+          if (!coords.lat) return;
           await fetch('/api/game/location', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...headers },
             body: JSON.stringify({ lat: coords.lat, lng: coords.lng })
           });
-          // 拉取全员
-          const res = await fetch('/api/game/locations/all', { headers });
-          if (res.ok) setAllUsers(await res.json());
         } catch (e) { console.error("Location sync error", e); }
       };
       
