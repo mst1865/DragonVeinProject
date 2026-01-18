@@ -68,11 +68,12 @@ namespace DragonVein.API.Controllers
         }
 
         // --- 2. 分配战队 (新接口：点击屏幕时调用) ---
+        // --- 2. 分配战队 (智能平衡版) ---
         [HttpPost("assign-team")]
-        [Authorize] // 必须登录
+        [Authorize]
         public IActionResult AssignTeam()
         {
-            // 1. 获取当前用户 ID
+            // 1. 获取当前用户
             var userIdClaim = User.Claims.FirstOrDefault(c => c.Type == "id")?.Value;
             if (userIdClaim == null) return Unauthorized();
             int userId = int.Parse(userIdClaim);
@@ -80,7 +81,7 @@ namespace DragonVein.API.Controllers
             var user = _context.Users.Include(u => u.Team).FirstOrDefault(u => u.Id == userId);
             if (user == null) return NotFound("用户不存在");
 
-            // 2. 幂等性检查：如果已有战队，直接返回现有战队
+            // 2. 幂等性检查：如果已有战队，直接返回
             if (user.TeamId != null)
             {
                 return Ok(new
@@ -90,21 +91,63 @@ namespace DragonVein.API.Controllers
                     teamDesc = user.Team.Description
                 });
             }
+            // --- 核心修改开始 ---
+            // 3. 获取所有战队的统计信息 (ID, 当前人数, 是否已有队长)
+            // 使用 Select 投影查询，比把所有 Member 拉出来效率更高
+            var teamsStats = _context.Teams
+                .Select(t => new
+                {
+                    Team = t,
+                    MemberCount = t.Members.Count(),
+                    HasCaptain = t.Members.Any(m => m.IsCaptain) // 检查该队是否已有成员是队长
+                })
+                .ToList();
 
-            // 3. 执行随机分配逻辑
-            var allTeams = _context.Teams.ToList();
+            List<dynamic> candidateTeams;
+            // 4. 根据用户身份筛选候选池
+            if (user.IsCaptain)
+            {
+                // 逻辑：如果我是预制队长，我只能去“没有队长”的队伍
+                candidateTeams = teamsStats
+                    .Where(t => !t.HasCaptain)
+                    .ToList<dynamic>();
+
+                if (!candidateTeams.Any())
+                {
+                    return BadRequest("所有战队均已有指挥官，分配失败！请联系管理员。");
+                }
+            }
+            else
+            {
+                // 逻辑：如果我是普通兵，所有队伍都可以去
+                candidateTeams = teamsStats.ToList<dynamic>();
+            }
+
+            // 5. 人数平衡策略：找出人数最少的那一批战队
+            // 例如：A队5人, B队5人, C队8人 -> 候选池为 A和B
+            int minCount = candidateTeams.Min(t => t.MemberCount);
+
+            // 允许一个小的浮动范围(比如0)，严格保持平衡
+            var bestCandidates = candidateTeams
+                .Where(t => t.MemberCount == minCount)
+                .ToList();
+
+            // 6. 从最优解中随机选一个 (避免总是按照数据库ID顺序分配)
             var random = new Random();
-            var assignedTeam = allTeams[random.Next(allTeams.Count)];
+            var selected = bestCandidates[random.Next(bestCandidates.Count)].Team;
 
-            user.Team = assignedTeam;
-            user.TeamId = assignedTeam.Id;
+            // --- 核心修改结束 ---
+
+            // 7. 执行分配
+            user.Team = selected;
+            user.TeamId = selected.Id;
             _context.SaveChanges();
 
             return Ok(new
             {
-                teamId = assignedTeam.Id,
-                teamName = assignedTeam.Name,
-                teamDesc = assignedTeam.Description
+                teamId = selected.Id,
+                teamName = selected.Name,
+                teamDesc = selected.Description
             });
         }
 
@@ -215,9 +258,10 @@ namespace DragonVein.API.Controllers
                 bool hasItem = _context.ItemCards.Any(i =>
                     i.UserId == user.Id &&
                     i.OriginLocationId == request.LocationId);
-                if ((hasCard || hasItem) && user.Id!=162)
+                if (hasCard || hasItem)
                 {
-                    return BadRequest("您已在此站点探索过，请前往下一个坐标！");
+                    //暂时注释用于测试
+                    //return BadRequest("您已在此站点探索过，请前往下一个坐标！");
                 }
                 // --- 核心抽卡逻辑 ---
                 // --- 1. 计算剩余库存 ---
@@ -600,6 +644,66 @@ namespace DragonVein.API.Controllers
             var idClaim = User.Claims.FirstOrDefault(c => c.Type == "id");
             if (idClaim == null) return null;
             return _context.Users.Include(u => u.Team).FirstOrDefault(u => u.Id == int.Parse(idClaim.Value));
+        }
+
+        // 管理员相关接口 ---
+
+        // 1. 获取管理员看板数据 (所有队伍 + 成员 + 队长标识)
+        [HttpGet("admin/dashboard")]
+        [Authorize]
+        public IActionResult GetAdminDashboard()
+        {
+            // 这里简单判断一下权限，实际建议走 Role Claims
+            // var username = User.Identity.Name;
+            // if (username != "admin") return Unauthorized();
+
+            var teams = _context.Teams
+                .Include(t => t.Members)
+                .Select(t => new
+                {
+                    t.Id,
+                    t.Name,
+                    t.Description,
+            // 计算该队当前未使用的手牌数
+            cardCount = t.Cards.Count(c => !c.IsPlayed),
+                    members = t.Members.Select(m => new
+                    {
+                        m.Id,
+                        m.RealName,
+                        m.Username,
+                        m.IsCaptain,
+                // 是否在线/活跃 (5分钟内)
+                isOnline = m.LastActiveTime > DateTime.UtcNow.AddMinutes(-5)
+                    }).ToList()
+                })
+                .ToList();
+
+            return Ok(teams);
+        }
+
+        // 2. 设置队长
+        [HttpPost("admin/set-captain")]
+        public IActionResult SetCaptain([FromBody] int userId)
+        {
+            var user = _context.Users.Find(userId);
+            if (user == null) return NotFound("用户不存在");
+            if (user.TeamId == null) return BadRequest("该用户没有战队");
+
+            // 1. 找到该战队当前的队长，取消其资格
+            var oldCaptains = _context.Users
+                .Where(u => u.TeamId == user.TeamId && u.IsCaptain)
+                .ToList();
+
+            foreach (var old in oldCaptains)
+            {
+                old.IsCaptain = false;
+            }
+
+            // 2. 设置新队长
+            user.IsCaptain = true;
+            _context.SaveChanges();
+
+            return Ok(new { message = $"已任命 {user.RealName} 为队长" });
         }
 
     }

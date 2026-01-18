@@ -3,6 +3,7 @@ import { getDistance } from './utils/geo';
 import { useGeoLocation } from './utils/useGeoLocation';
 import { INTRO_TEXT } from './data/gameConfig';
 import LoginPage from './components/LoginPage';
+import AdminPage from './components/AdminPage';
 import CaptainView from './components/CaptainView';
 import CardModal from './components/CardModal';
 import MapTab from './components/MapTab'; // 引入地图组件
@@ -33,6 +34,13 @@ const App = () => {
   const [showWildModal, setShowWildModal] = useState(null); // 存 itemId
   const [showSwapModal, setShowSwapModal] = useState(null); // 存 itemId
 
+  const [isAdminMode, setIsAdminMode] = useState(window.location.pathname === '/admin');
+
+  // 如果在 admin 模式，直接渲染 AdminPage
+  if (isAdminMode) {
+      return <AdminPage />;
+  }
+
   // --- 1. 初始化 ---
   useEffect(() => {
     const initGame = async () => {
@@ -43,6 +51,10 @@ const App = () => {
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
+          if (data.user.username === 'admin') {
+              window.location.href = '/admin'; // 强制刷新跳转
+              return;
+          }
           setStage(data.user.teamId ? 'game' : 'intro');
         } else {
           localStorage.removeItem('token');
@@ -181,7 +193,25 @@ const App = () => {
     }
   };
 
+
+
   // --- 道具操作 ---
+
+  // 专门用于刷新团队手牌的方法
+  const refreshTeamCards = async () => {
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch('/api/game/team-cards', { 
+            headers: { 'Authorization': `Bearer ${token}` } 
+        });
+        if (res.ok) {
+            setTeamCards(await res.json());
+        }
+    } catch (e) {
+        console.error("刷新手牌失败", e);
+    }
+  };
+
 
   // --- 1. 获取其他战队列表 (用于调换牌) ---
   const fetchTeams = async () => {
@@ -252,8 +282,13 @@ const App = () => {
       const data = await res.json();
       localStorage.setItem('token', data.token);
       setUser(data.user);
+      if (data.user.username === 'admin') {
+          window.location.href = '/admin'; // 强制刷新跳转
+          return;
+      }
+
       setStage(data.user.teamId ? 'game' : 'intro');
-    } catch (err) { alert("网络错误"); }
+    } catch (err) { alert(`网络错误${err}`); }
   };
 
   const handleAssignTeam = async () => {
@@ -272,12 +307,6 @@ const App = () => {
       } else { alert("匹配失败"); }
     } catch (err) { alert("网络错误"); }
     finally { setIsAssigning(false); }
-  };
-
-  const handleCaptainPlay = (ids) => {
-    const newHand = teamCards.filter(c => !ids.includes(c.id));
-    setTeamCards(newHand);
-    alert(`队长指令：打出 ${ids.length} 张牌！`);
   };
 
   const sortedCards = [...teamCards].sort((a, b) => {
@@ -554,7 +583,12 @@ const App = () => {
             {/* Tab 4: Captain */}
             {activeTab === 'captain' && (
                 user.isCaptain 
-                ? <CaptainView teamId={user.teamId} teamCards={teamCards} onPlayCards={handleCaptainPlay} isCaptain={user.isCaptain}/>
+                ? <CaptainView 
+                      teamId={user.teamId} 
+                      teamCards={teamCards} 
+                      onPlaySuccess={refreshTeamCards} /* 重拉 */
+                      isCaptain={user.isCaptain}
+                  />
                 : <div className="text-center mt-20 text-slate-500">⚠️ 权限不足<br/>仅队长可访问指挥台</div>
              )}
           </div>
